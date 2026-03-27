@@ -37,13 +37,14 @@ When analyzing a failure, you may perform the following mitigations to expose th
 
 Do not stop at "network issue" if a practical workaround can expose a deeper failure.
 
-If exposing the real failure requires extensive setup or significant deviation from the original test intent, classify the test as unsuitable for CI instead of continuing mitigation.
-
 ## Environment Support
 
 Use following ENV variables to access internet:
-export http_proxy=socks5h://127.0.0.1:1080
-export https_proxy=socks5h://127.0.0.1:1080
+export http_proxy=socks5h://127.0.0.1:1080 && export https_proxy=socks5h://127.0.0.1:1080 && export all_proxy=socks5h://127.0.0.1:1080 && export no_proxy=127.0.0.1,localhost && export NO_PROXY=127.0.0.1,localhost
+
+Use following ENV variable to select NPU cards:
+export ASCEND_RT_VISIBLE_DEVICES=6,7
+And use 'npu-smi info' to check the available NPU cards, should use empty card for CI test to avoid OOM issue.
 
 Use ModelScope to download model weight:
 export VLLM_USE_MODELSCOPE=True
