@@ -29,7 +29,7 @@ Each analysis should record:
 
 When analyzing a failure, you may perform the following mitigations to expose the real root cause:
 
-- download model weight by ModelScope first(export VLLM_USE_MODELSCOPE=True), fallback to huggingface if model is unavailable on ModelScope
+- download model weight & other required files by huggingface mirror first(export HF_ENDPOINT=https://hf-mirror.com), fallback to ModelScope if met network issue(export VLLM_USE_MODELSCOPE=True)
 - install the missing Python dependencies, and record the exact versions installed
 - install the required model weights if <= 7B parameters, otherwise classify as "external model too large for CI"
 - if resources not listed here are required, ask me before installing or caching them
@@ -45,6 +45,9 @@ export http_proxy=socks5h://127.0.0.1:1080 && export https_proxy=socks5h://127.0
 Use following ENV variable to select NPU cards:
 export ASCEND_RT_VISIBLE_DEVICES=6,7
 And use 'npu-smi info' to check the available NPU cards, should use empty card for CI test to avoid OOM issue.
+
+Use huggingface mirror to download model weight and other required files:
+export HF_ENDPOINT=https://hf-mirror.com
 
 Use ModelScope to download model weight:
 export VLLM_USE_MODELSCOPE=True
