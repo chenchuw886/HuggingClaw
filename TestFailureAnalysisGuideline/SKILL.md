@@ -6,6 +6,9 @@ The final goal is to identify a portfolio of upstream vLLM testcases that should
 
 - The primary repositories are `vllm` and `vllm-ascend`. vLLM-Ascend is a platform plugin that adapts vLLM to run on Ascend hardware, so the adaptation boundary is a key focus for test selection and failure analysis.
 - When asked to analyze a batch of failing tests, inspect both repositories if the failure path crosses the adaptation boundary.
+- Primary workspace and codes are under:
+    - `/vllm-workspace/vllm`
+    - `/vllm-workspace/vllm-ascend`
 
 ## Required Context for Analysis
 
@@ -31,16 +34,14 @@ When analyzing a failure, you may perform the following mitigations to expose th
 
 - download model weight & other required files by huggingface mirror first(export HF_ENDPOINT=https://hf-mirror.com), fallback to ModelScope if met network issue(export VLLM_USE_MODELSCOPE=True)
 - install the missing Python dependencies, and record the exact versions installed
-- install the required model weights if <= 7B parameters, otherwise classify as "external model too large for CI"
-- if resources not listed here are required, ask me before installing or caching them
+- if resources not listed here are required, install or cache them
 - if the failure is due to transient network or environment issues, like download speed too slow, ask me before retrying
 
 Do not stop at "network issue" if a practical workaround can expose a deeper failure.
 
 ## Environment Support
 
-Use following ENV variables to access internet:
-export http_proxy=socks5h://127.0.0.1:1080 && export https_proxy=socks5h://127.0.0.1:1080 && export all_proxy=socks5h://127.0.0.1:1080 && export no_proxy=127.0.0.1,localhost && export NO_PROXY=127.0.0.1,localhost
+Assume environment has China mainland network access, e.g. curl https://hf-mirror.com should work.
 
 Use following ENV variable to select NPU cards:
 export ASCEND_RT_VISIBLE_DEVICES=6,7
