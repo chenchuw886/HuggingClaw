@@ -121,3 +121,9 @@ Lower priority should be given to tests that are backend-specific to CUDA/HIP, h
 
 Presubmit CI should contain the smallest stable subset with high regression signal, while heavier multimodal, runtime-compatibility, and distributed-setup cases should be deferred to nightly CI.
 
+## Case Studies
+
+- [CASE_LORA_WRAPPER_SELECTION_GAP.md](CASE_LORA_WRAPPER_SELECTION_GAP.md)
+    - 典型插件适配边界案例：`vllm-ascend` 对 upstream LoRA wrapper 选择逻辑迁移不完整，导致 `test_add_lora.py` 在 `set_lora()` 阶段触发 `IndexError`。
+    - 重点经验：当失败只在安装插件后出现，且 traceback 落在 upstream 层代码时，要优先检查插件是否遗漏了 upstream 的分流条件（如 `packed_modules_list`、`output_sizes`），而不是直接怀疑 upstream 本身。
+
