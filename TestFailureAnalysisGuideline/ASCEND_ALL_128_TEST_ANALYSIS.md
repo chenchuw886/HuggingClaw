@@ -1,6 +1,6 @@
 # vLLM 1-128 用例 Ascend 总表
 
-更新时间：2026-03-27
+更新时间：2026-03-31
 
 ## 说明
 
@@ -89,7 +89,7 @@
 | 60 | `tests/models/language/pooling_mteb_test/test_qwen3_reranker.py` | 失败 | 否 | manual | 已推进到 MTEB 评测栈内部：`TypeError: 'NoneType' object is not subscriptable`。 |
 | 61 | `tests/models/language/pooling_mteb_test/test_snowflake_arctic_embed.py` | 失败（前置仍阻塞） | 否 | manual | 补跑后确认当前首个阻塞是 Hugging Face `tokenizer_config.json` 获取经 SOCKS 代理长时间无响应，最终超时/`KeyboardInterrupt`。 |
 | 62 | `tests/models/multimodal/generation/test_audioflamingo3.py` | skip | 否 | reject | 日志为 `2 skipped`，未形成有效 Ascend 覆盖。 |
-| 63 | `tests/models/multimodal/generation/test_granite_speech.py` | 失败 | 是 | nightly | `NPUModelRunner` 缺少 `mm_budget`，属于多模态适配缺口。 |
+| 63 | `tests/models/multimodal/generation/test_granite_speech.py` | 失败 | 是 | nightly | 初始适配缺口是 `NPUModelRunner` 未补齐 upstream 多模态 budget 状态；该问题修复后，旧的 `mm_budget` 首错已消失。本轮又按“单用例、单空闲卡”做了独立补跑，但新生成的专用产物仍未形成可用业务断言（`tests=0`），因此暂不再把“默认改 `spawn`”记为必要代码修复。 |
 | 64 | `tests/models/multimodal/generation/test_phi4mm.py` | 失败 | 否 | reject | 多模态 LoRA 激活触发 `IndexError: tuple index out of range`，更像上游形状假设问题。 |
 | 65 | `tests/models/multimodal/generation/test_qwen2_5_vl.py` | 失败 | 是 | nightly | 真实根因：`aclnnIndexPutImpl failed`。 |
 | 66 | `tests/models/multimodal/generation/test_vit_backend_functionality.py` | skip | 否 | reject | `16 skipped`，无有效信号。 |
@@ -130,19 +130,19 @@
 | 101 | `tests/v1/core/test_scheduler_e2e.py` | 失败 | 否 | reject | 调度断言 `0 == 16`，偏 upstream 核心逻辑。 |
 | 102 | `tests/v1/cudagraph/test_cudagraph_mode.py` | 失败 | 否 | reject | `nvmlDeviceGetHandleByIndex` 未定义，明显依赖 NVML/Nvidia。 |
 | 103 | `tests/v1/e2e/test_min_tokens.py` | 失败 | 是 | nightly | 真实根因：`aclnnFusedInferAttentionScoreV3 failed`。 |
-| 104 | `tests/v1/engine/test_engine_args.py` | 失败 | 是 | presubmit | `NPUPlatform.get_device_total_memory()` 未实现。 |
+| 104 | `tests/v1/engine/test_engine_args.py` | 通过 | 是 | presubmit | `NPUPlatform.get_device_total_memory()` 已补齐，并改为优先通过 `npu-smi` 获取总显存，既满足平台契约也避免在 fork 前提前初始化 `torch.npu`。 |
 | 105 | `tests/v1/entrypoints/openai/test_completion.py` | 失败 | 是 | nightly | OpenAI 500 的真实根因是 `aclnnFusedInferAttentionScoreV3 failed`。 |
 | 106 | `tests/v1/entrypoints/openai/test_completion_with_image_embeds.py` | 失败 | 是 | nightly | 真实根因：`aclnnIndexPutImpl failed`。 |
-| 107 | `tests/v1/kv_connector/unit/test_cache_pollution_prevention.py` | 失败 | 否 | reject | `IndexError: list index out of range`，偏 connector 单元逻辑。 |
-| 108 | `tests/v1/kv_connector/unit/test_config.py` | 失败 | 否 | reject | `NoneType.is_deepseek_mla`，偏通用配置逻辑。 |
-| 109 | `tests/v1/kv_connector/unit/test_decode_bench_connector.py` | 失败 | 否 | reject | 断言 `1 == 3`，偏 connector 逻辑。 |
-| 110 | `tests/v1/kv_connector/unit/test_error_propagation.py` | 失败 | 否 | reject | `IndexError: list index out of range`。 |
-| 111 | `tests/v1/kv_connector/unit/test_example_connector.py` | 失败 | 否 | reject | `AttributeError: 'tuple' object has no attribute 'shape'`。 |
-| 112 | `tests/v1/kv_connector/unit/test_invalid_blocks_correctness.py` | 失败 | 否 | reject | `IndexError: list index out of range`。 |
-| 113 | `tests/v1/kv_connector/unit/test_kv_load_failure_recovery.py` | 失败 | 否 | reject | `IndexError: list index out of range`。 |
-| 114 | `tests/v1/kv_connector/unit/test_offloading_connector.py` | 失败 | 否 | reject | connector 断言失败。 |
-| 115 | `tests/v1/kv_connector/unit/test_remote_decode_lifecycle.py` | 失败 | 否 | reject | 断言 `1 == 3`。 |
-| 116 | `tests/v1/kv_connector/unit/test_remote_prefill_lifecycle.py` | 失败 | 否 | reject | 断言 `1 == 2`。 |
+| 107 | `tests/v1/kv_connector/unit/test_cache_pollution_prevention.py` | 通过 | 否 | reject | 本轮补跑 `1 passed`。该文件本质是 upstream `Scheduler` invalid-block / prefix-cache 纯逻辑单测；当前通过说明先前 Ascend 噪音主要来自 CPU/config-only 路径被平台污染，而不是独立 connector 适配缺陷。 |
+| 108 | `tests/v1/kv_connector/unit/test_config.py` | 通过 | 是 | presubmit | 本轮补跑 `6 passed`。对应真实修复点是 `vllm_ascend/platform.py` 与 `vllm_ascend/ascend_config.py`：Ascend 不再在 `device_config=cpu`、`model_config=None` 的纯配置场景强行进入 `AscendConfig`。 |
+| 109 | `tests/v1/kv_connector/unit/test_decode_bench_connector.py` | 通过 | 否 | reject | 本轮补跑 `8 passed`。覆盖 upstream `DecodeBenchConnector`，并不命中 Ascend 自定义 connector；当前通过说明无需为该用例单独修改 Ascend runtime。 |
+| 110 | `tests/v1/kv_connector/unit/test_error_propagation.py` | 通过 | 否 | reject | 本轮补跑 `2 passed`。主要守护 upstream `Scheduler._handle_invalid_blocks()` 的错误传播语义；当前通过表明旧失败首先是 Ascend CPU-path 污染噪音。 |
+| 111 | `tests/v1/kv_connector/unit/test_example_connector.py` | skip | 否 | reject | 本轮补跑结果为 `1 skipped`，当前不构成有效 Ascend 失败样本；旧的 `tuple.shape` 失败结论不再适用。 |
+| 112 | `tests/v1/kv_connector/unit/test_invalid_blocks_correctness.py` | 通过 | 否 | reject | 本轮补跑 `3 passed`。upstream scheduler invalid-block 纯逻辑测试；当前通过说明不再存在可归因于 Ascend 的首要阻塞。 |
+| 113 | `tests/v1/kv_connector/unit/test_kv_load_failure_recovery.py` | 通过 | 否 | reject | 本轮补跑 `11 passed`。这是 upstream async/sync KV load failure recovery 逻辑测试，不直接覆盖 Ascend connector/worker 适配。 |
+| 114 | `tests/v1/kv_connector/unit/test_offloading_connector.py` | 通过 | 否 | reject | 本轮补跑 `10 passed`。覆盖 upstream `OffloadingConnector`，而不是 Ascend 自有 `CPUOffloadingConnector`；当前通过后更不建议把它当作 Ascend 专属回归点。 |
+| 115 | `tests/v1/kv_connector/unit/test_remote_decode_lifecycle.py` | 通过 | 否 | manual | 本轮补跑 `4 passed`。该用例守护 upstream remote decode 生命周期，不命中 Ascend 自定义 connector；即便当前通过，若要做 Ascend 守护仍应优先修并启用 `vllm-ascend/tests/ut/kv_connector/test_remote_decode_lifecycle.py`。 |
+| 116 | `tests/v1/kv_connector/unit/test_remote_prefill_lifecycle.py` | 通过 | 否 | manual | 本轮补跑 `6 passed`。同上；更合理的是修并启用 `vllm-ascend/tests/ut/kv_connector/test_remote_prefill_lifecycle.py`，而不是把 upstream Nixl-style 生命周期断言直接当成 Ascend CI 守护。 |
 | 117 | `tests/v1/sample/test_rejection_sampler.py` | 失败 | 否 | reject | `TypeError: 'function' object is not subscriptable`，偏上游采样逻辑。 |
 | 118 | `tests/v1/spec_decode/test_speculators_eagle3.py` | 失败 | 是 | nightly | `AscendW4A16FusedMoEMethod.get_weight()` 缺少 `params_dtype` 参数。 |
 | 119 | `tests/v1/tracing/test_tracing.py` | 失败 | 是 | nightly | 真实根因：`aclnnFusedInferAttentionScoreV3 failed`。 |
@@ -152,7 +152,7 @@
 | 123 | `tests/kernels/helion/test_helion_available.py` | skip | 否 | reject | 平台不匹配，历史统计为 `1 skipped`。 |
 | 124 | `tests/kernels/moe/test_routing_simulator.py` | 通过 | 是 | presubmit | `27 passed`，稳定、轻量、纯逻辑守护。 |
 | 125 | `tests/kernels/moe/test_triton_moe_no_act_mul.py` | skip | 否 | reject | Triton/CUDA 导向，历史统计为 `74 skipped`。 |
-| 126 | `tests/lora/test_qwenvl.py` | 部分通过 | 有条件 | nightly | 多模态 LoRA/模块映射有价值，但初始化路径仍不稳。 |
+| 126 | `tests/lora/test_qwenvl.py` | 通过 | 是 | nightly | 当前确认的必要修复面包括：`vllm_ascend/lora/punica_npu.py` 恢复 LoRA decode 的 token-index 收窄语义，以及 `vllm_ascend/platform.py` 在未显式指定时默认改用 `spawn`、规避 `Invalid thread pool!`。在此前已独立补跑通过 `test_qwen2vl_lora`、`test_qwen2vl_lora_beam_search` 的基础上，用户随后按“单用例、单空闲卡、独立进程”口径手动复跑整文件，结果为 `6 passed`。 |
 | 127 | `tests/models/language/pooling_mteb_test/test_nemotron.py` | 部分通过 | 否 | manual | 重型 MTEB 评测，CI 成本高于收益。 |
 | 128 | `tests/v1/engine/test_preprocess_error_handling.py` | 失败（当前环境） | 有条件 | nightly | 补跑确认真实根因是空闲显存不足，而非模型下载失败。 |
 
@@ -167,6 +167,7 @@
 - `tests/plugins_tests/test_stats_logger_plugins.py`（先补齐 `dummy_stat_logger`）
 - `tests/quantization/test_configs.py`
 - `tests/v1/engine/test_engine_args.py`
+- `tests/v1/kv_connector/unit/test_config.py`
 - `tests/entrypoints/test_grpc_server.py`
 - `tests/kernels/moe/test_routing_simulator.py`
 
