@@ -17,47 +17,40 @@ Each analysis should record:
 - vllm commit / version
 - vllm-ascend commit / version
 - Python / torch / torch-npu / CANN versions
-- whether the environment is clean or pre-cached
-- whether external network is allowed
 
 
 ## Root-Cause-First Workflow
 
-1. Run the target test(s) and capture the first real failure.
+1. Run the target test(s) and capture the first real failure. Remember each test file or testcase should be run individually on an empty NPU card to avoid OOM and get the real failure!
 2. Do not treat network, download, cache-miss, or missing-dependency errors as final conclusions unless they remain the true blocker after reasonable mitigation.
 3. If needed, eliminate environmental noise so the underlying failure can surface.
 4. Read the relevant code paths before concluding whether the issue belongs to `vllm`, `vllm-ascend`, the test itself, or the runtime stack.
 
-## UT precondition preparation
-
-When analyzing a failure, you may perform the following mitigations to expose the real root cause:
-
-- download model weight & other required files by huggingface mirror first(export HF_ENDPOINT=https://hf-mirror.com), fallback to ModelScope if met network issue(export VLLM_USE_MODELSCOPE=True)
-- install the missing Python dependencies, and record the exact versions installed
-- if resources not listed here are required, install or cache them
-- if the failure is due to transient network or environment issues, like download speed too slow, ask me before retrying
-
-Do not stop at "network issue" if a practical workaround can expose a deeper failure.
-
-## Environment Support
+## Environment Support & Rules
 
 Assume environment has China mainland network access, e.g. curl https://hf-mirror.com should work.
 
+Rule0: Do not stop at "network issue" or "missing dependency" if a practical workaround can expose a deeper failure!!!
+
+Rule1: Each test should be run on an empty NPU card to avoid OOM and get the real failure. Use following ENV variable to select NPU cards:
 Use following ENV variable to select NPU cards:
 export ASCEND_RT_VISIBLE_DEVICES=6,7
 And use 'npu-smi info' to check the available NPU cards, should use empty card for CI test to avoid OOM issue.
 
-Use huggingface mirror to download model weight and other required files:
+Rule2: Use huggingface mirror to download model weight and other required files:
 export HF_ENDPOINT=https://hf-mirror.com
 
-Use ModelScope to download model weight:
+Rule3: Fallback to ModelScope if huggingface mirror is unavailable:
 export VLLM_USE_MODELSCOPE=True
 
-## Testcase Selection Guidelines
+Rule4: pip install using aliyun mirror:
+pip install -i https://mirrors.aliyun.com/pypi/simple/ <package-name>
+
+## Testcase analysis for Ascend CI
 
 Candidate testcases should be selected using the following rules:
 
-### 1. Selection Principles
+### 1. Principles
 
 A testcase is a strong CI candidate if it satisfies most of the following:
 
@@ -65,7 +58,6 @@ A testcase is a strong CI candidate if it satisfies most of the following:
 - it exercises an Ascend-sensitive adaptation boundary, such as hardware plugin loading, platform dispatch, custom op registration, model adaptation, compiler/runtime fallback, or backend-specific execution paths
 - it is stable and reproducible in a controlled CI environment
 - it has high signal-to-noise ratio, meaning failures are likely to indicate a real code, adaptation, or runtime regression rather than transient environment issues
-- it has manageable setup cost in CI, including model size, asset size, startup time, and dependency footprint
 - it covers a previously observed or highly plausible regression mode in vllm-ascend
 - it can run with local or pre-cached assets, or with minimal deterministic preparation
 - it behaves deterministically under fixed inputs, seeds, and environment
@@ -88,26 +80,15 @@ Tests that add useful confidence but are expensive, flaky, or lower-yield for ev
 A testcase is usually not a good CI candidate if:
 
 - it mainly validates CUDA-only, HIP-only, or non-Ascend-specific backend behavior
-- it depends heavily on unstable external network access, unavailable models, or large remote assets
-- it is primarily a benchmark, throughput check, or performance characterization rather than a correctness guard
-- it is highly flaky due to timing, process startup ordering, port collisions, or nondeterministic distributed behavior
-- it requires broad environment mutation beyond minimal targeted mitigation
 - it tests a feature that is explicitly unsupported or not applicable on Ascend
-- it duplicates coverage already provided by a smaller, more stable testcase
-- it requires disproportionately high analysis or setup cost relative to its regression detection value
 
 ## Output Requirements
 
 When summarizing a batch of failing tests:
 - provide a table with each test, the true root cause
-- clearly list any dependencies installed, resources cached, or workarounds used during analysis
-- call out any test file listed by the task that does not actually exist in the checked-out branch
-- state whether the testcase is worth adding coverage for in `vllm-ascend`, and why according to testcase selection guidelines. If not, explain the main blockers and suggest what would be needed to make it a good candidate.
-
-When recommending testcases for CI admission, provide:
-- what upstream behavior it is guarding and why that behavior is relevant to Ascend
-- the ownership (which component should address it: vllm, vllm-ascend, test, or runtime stack)
-- can the testcase be made to pass with code fixes in `vllm-ascend`, or does it require changes to upstream `vllm` or the test itself, or other mitigation beyond code changes?
+- testcase analysis for each test(Granularity at the file level), including which upstream behavior it is guarding and why that behavior is relevant to Ascend, the ownership (which component should address it: vllm, vllm-ascend, test, or runtime stack), and whether the testcase can be made to pass with code fixes in `vllm-ascend` or requires changes to upstream `vllm` or the test itself, or other mitigation beyond code changes
+- clearly list any dependencies installed, resources cached, or workarounds used for each test
+- whether the testcase can be made to pass with code fixes in `vllm-ascend` or requires changes to upstream `vllm` or the test itself, or other mitigation beyond code changes
 
 
 ## Project Summary
@@ -118,8 +99,6 @@ The goal is to ensure that `vllm-ascend` preserves upstream behavioral contracts
 
 Priority should be given to tests that guard hardware plugin loading, platform dispatch, CustomOp fallback, config normalization, API/request validation, scheduler and cache semantics, LoRA adapter loading and module mapping, lightweight multimodal input handling, pooling task contracts, and OpenAI-compatible API path correctness.
 Lower priority should be given to tests that are backend-specific to CUDA/HIP, heavily network-dependent, benchmark-oriented, or operationally flaky.
-
-Presubmit CI should contain the smallest stable subset with high regression signal, while heavier multimodal, runtime-compatibility, and distributed-setup cases should be deferred to nightly CI.
 
 ## Case Studies
 
