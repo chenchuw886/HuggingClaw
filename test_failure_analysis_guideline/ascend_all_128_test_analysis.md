@@ -4,10 +4,6 @@
 
 ## 说明
 
-- 本表汇总以下三份分段报告：
-  - `ASCEND_FIRST_30_TEST_ANALYSIS.md`
-  - `ASCEND_31_61_TEST_ANALYSIS.md`
-  - `ASCEND_62_128_TEST_ANALYSIS.md`
 - 新增列“**昇腾应跑通**”，用于回答：**该用例按上游行为契约/平台适用性判断，是否应该在昇腾环境跑通**。
 
 ### “昇腾应跑通”判定口径
