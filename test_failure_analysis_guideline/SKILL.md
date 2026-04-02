@@ -1,4 +1,9 @@
-# Test Failure Analysis Guidelines for vLLM-Ascend
+---
+name: Test Failure Analysis Skill
+description: Workflow and decision criteria for identifying, analyzing, and triaging failing tests in vllm-ascend.
+---
+
+# Test Failure Analysis Skill for vLLM-Ascend
 
 The final goal is to identify a portfolio of upstream vLLM testcases that should be added to the vllm-ascend CI pipeline to improve functional guard coverage for Ascend, while preserving upstream behavior and logic rather than re-defining them.
 

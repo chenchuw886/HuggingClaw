@@ -1,4 +1,9 @@
-# PR Guidelines
+---
+name: PR Guidelines Skill
+description: Standardize pull request conventions for vLLM-Ascend
+---
+
+# PR Guidelines Skill
 
 This directory records local pull request conventions that should be followed when preparing or updating PRs for repositories in this workspace.
 
