@@ -9,8 +9,9 @@ Your task is to **add and improve automated tests for a target module** to achie
 
 * DO NOT rewrite production code unless absolutely necessary for testability or to fix a clear bug.
 * Prefer adding tests over modifying implementation.
-* Follow existing test framework, structure, naming, and mocking patterns.
+* Follow existing test framework, structure, naming, header comments, and mocking patterns.
 * Tests must be meaningful — not just written to inflate coverage.
+* Make sure line coverage and branch coverage are both close to 100% after your changes.
 
 ## What to do
 
