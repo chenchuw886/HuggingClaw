@@ -1,51 +1,93 @@
 ---
 name: Unit and Coverage Test Supply Skill
-description: Guidelines for adding comprehensive unit tests in HuggingClaw modules to achieve line and branch coverage targets.
+description: Guidelines for adding comprehensive unit tests in specific software projects to achieve line and branch coverage targets.
 ---
 
 # Unit and Coverage Test Supply Skill
 
 ## Overview
 
-This skill is for senior test engineers creating or improving automated tests to reach high code coverage while maintaining meaningful assertions and low risk.
+You are a senior test engineer working inside a large production-grade repository.
 
-## When to use
+Your task is to **add and improve automated tests for a target module** to achieve:
 
-- When implementing tests for a target module in HuggingClaw
-- When coverage is missing due to untested logic paths
+* 100% **line coverage**
+* 100% **branch coverage**
 
-## Steps
+## Reference Case
 
-1. Analyze public APIs, key functions, control flow branches, and coverage gaps.
-2. Plan scenarios for happy paths, invalid input, error paths, boundaries, config flags, and dependency failures.
-3. Implement focused tests that cover all branches and assert behavior.
-4. Validate by running tests and checking coverage, iterating to 100% line and branch coverage where feasible.
+Before starting, you may refer to the practical case study below for a real coverage-improvement workflow on a complex scheduler module:
 
-> Important: The target is to get as close as possible to 100% line and branch coverage. Do not stop midway; continuously iterate and improve until coverage is extremely close to 100%.
+* `ut_supply/vllm_ascend_core_ut_coverage_case.md`
 
-## Rules
+## Rules (strict)
 
-- Prefer test additions over production changes.
-- Avoid rewriting production code unless required for correctness/testability.
-- Align with existing test style (framework, naming, mocking patterns).
-- Ensure tests are meaningful and not coverage inflation.
+* DO NOT rewrite production code unless absolutely necessary for testability or to fix a clear bug.
+* Prefer adding tests over modifying implementation.
+* Follow existing test framework, structure, naming, header comments, and mocking patterns.
+* Tests must be meaningful — not just written to inflate coverage.
+* Make sure line coverage and branch coverage are both close to 100% after your changes.
 
-## Quality requirements
+## What to do
 
-- Use precise assertions.
-- Cover empty/null/min/max values, error paths, defaults, and short-circuit logic.
-- Control randomness and time to avoid flakiness.
+### 1. Analyze
+
+* Identify public APIs, key functions, and control flow branches
+* Detect all decision points (if/else, switch, guards, early returns, error paths)
+* Review existing tests and coverage gaps
+
+### 2. Plan (brief)
+
+List missing test scenarios:
+
+* happy paths
+* edge cases
+* invalid inputs
+* error/exception paths
+* boundary values
+* config/feature flag branches
+* dependency failures (timeouts, nulls, errors)
+
+### 3. Implement
+
+Write tests that:
+
+* cover ALL branches (true/false of every condition)
+* cover ALL lines
+* assert actual behavior (not just execution)
+* include edge cases and failure paths
+* mock external dependencies (IO, network, DB, time, randomness)
+
+### 4. Validate
+
+* Run tests
+* Check coverage
+* Iterate until **100% line + 100% branch coverage**
+
+## Testing quality requirements
+
+* Use precise assertions (avoid weak checks)
+* Cover:
+
+  * empty / null / undefined
+  * min / max / boundary values
+  * error handling paths
+  * default branches
+  * short-circuit logic
+* Control time and randomness (no flaky tests)
+* Avoid over-coupling to implementation details
 
 ## Output
 
-- New or updated test files
-- Short summary of scenarios added
-- Final coverage report with line/branch results
+* New/updated test files
+* Brief explanation of added cases
+* Final coverage result
 
-## Notes
+## Important
 
-- If a path is hard to test, use mocks/dependency injection.
-- Keep production code edits minimal and justified.
+If something is hard to test:
 
+* Use mocks, dependency injection, or test helpers
+* Only modify production code if strictly necessary, and keep changes minimal
 
 Start working once the target module is provided.
