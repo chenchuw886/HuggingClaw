@@ -45,10 +45,7 @@ And use 'npu-smi info' to check the available NPU cards, should use empty card f
 Rule2: Use huggingface mirror to download model weight and other required files:
 export HF_ENDPOINT=https://hf-mirror.com
 
-Rule3: Fallback to ModelScope if huggingface mirror is unavailable:
-export VLLM_USE_MODELSCOPE=True
-
-Rule4: pip install using aliyun mirror:
+Rule3: pip install using aliyun mirror:
 pip install -i https://mirrors.aliyun.com/pypi/simple/ <package-name>
 
 ## Testcase analysis for Ascend CI
