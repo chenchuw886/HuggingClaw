@@ -18,7 +18,7 @@ Your task is to **add and improve automated tests for a target module** to achie
 
 Before starting, you may refer to the practical case study below for a real coverage-improvement workflow on a complex scheduler module:
 
-* `ut_supply/vllm_ascend_core_ut_coverage_case.md`
+* `references/vllm_ascend_core_ut_coverage_case.md`
 
 ## Rules (strict)
 
