@@ -1,0 +1,14 @@
+tests/entrypoints/openai/test_run_batch.py
+tests/entrypoints/pooling/classify/test_online_vision.py
+tests/models/multimodal/pooling/test_phi3v.py
+tests/reasoning/test_glm4_moe_reasoning_parser.py
+tests/test_seed_behavior.py
+tests/v1/worker/test_utils.py
+tests/v1/streaming_input/test_gpu_model_runner_streaming.py
+tests/renderers/test_sparse_tensor_validation.py
+tests/distributed/test_dcp_a2a.py
+tests/entrypoints/openai/chat_completion/test_enable_force_include_usage.py
+tests/entrypoints/openai/tool_parsers/test_granite4_tool_parser.py
+tests/kernels/test_fused_sigmoid_gating_delta_rule.py
+tests/lora/test_whisper.py
+tests/v1/e2e/general/test_async_scheduling.py
