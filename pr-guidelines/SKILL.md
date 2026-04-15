@@ -52,4 +52,6 @@ For bug-fix PRs in `vllm-ascend`, prefer `[BugFix]` and keep the rest of the tit
 - Frame `vllm-ascend` as an out-of-tree platform plugin.
 - Emphasize preserving upstream vLLM behavior contracts rather than redefining them.
 - Prefer behavior-level summaries over file-by-file inventories.
+- PR descriptions must follow the structure of `references/PULL_REQUEST_TEMPLATE.md`.
+- When preparing a PR body, use the sections in `references/PULL_REQUEST_TEMPLATE.md` as the baseline template.
 - When relevant, connect fixes to recovered upstream tests, but keep the evidence list short.
