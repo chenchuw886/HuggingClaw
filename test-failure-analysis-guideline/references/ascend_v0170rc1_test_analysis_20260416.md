@@ -79,7 +79,7 @@
 | 2 | `tests/engine/test_arg_utils.py` | Dynamic：前 6 个子用例在 Ascend 下连续通过；未出现平台相关断言失败。后续中断来自外部 `KeyboardInterrupt` 噪声，而非测试断言。 | 该文件主体是参数解析/类型工具单测，没有 Ascend 特定分支；未发现 Ascend blocker。 | `compatible / no blocker` | Yes | presubmit | No |
 | 3 | `tests/entrypoints/openai/test_default_mm_loras.py` | Dynamic：补跑后服务已进入 engine-core 初始化，首个有效失败为 LoRA 路径 OOM：`selected_loras = lora_b_weights[lora_indices_tensor].to(...)` 触发 `RuntimeError: NPU out of memory. Tried to allocate 20.00 GiB`。 | 根因已不是资产下载，而是 Phi-4 多模态 LoRA 启动/profile run 在当前 Ascend 显存预算下发生真实 NPU OOM；失败点位于 LoRA 扩展/索引张量搬运路径。 | `runtime memory pressure` + `vllm-ascend adaptation risk` | Maybe (after memory/shape tuning) | manual / nightly | Partially |
 | 4 | `tests/entrypoints/openai/test_return_tokens_as_ids.py` | Dynamic：纯单元子用例 `test_responses_api_logprobs_with_return_tokens_as_token_ids` 在 Ascend 下通过；在线 completion 子用例补跑后不再停在下载阶段，而是服务端 500，内核首错为 `RuntimeError: the first dimension of x, y, indices should be same`。 | 根因不是网络，而是在线推理路径中 prompt logprobs / LoRA logits 相关张量维度不一致，导致 Ascend 执行期崩溃并向 OpenAI server 冒泡为 `EngineDeadError`。 | `vllm-ascend runtime bug` | Unit yes; online no | unit: presubmit; online: manual / nightly | Yes |
-| 5 | `tests/entrypoints/openai/test_video.py` | Dynamic：补跑后不再首先暴露外部视频下载问题；当前可见首个失败是本地 server health-check 长时间无法就绪，最终在 `_wait_for_server` 中 `KeyboardInterrupt`。 | 现阶段真实边界已前移到“本地 OpenAI server 启动/ready 挂起”，而不是单纯网络资源；但日志未给出更早的 engine 内部异常，因此仍属未完全收敛的启动链问题。 | `runtime startup hang` | Unknown | manual | Unknown |
+| 5 | `tests/entrypoints/openai/test_video.py` | Dynamic：在独占空闲 `1` 号卡上再次单独重跑后，仍未首先暴露外部视频下载问题；当前可见首个失败是本地 server 对 `127.0.0.1:<port>/health` 的请求直接 `Connection refused`，随后 `_wait_for_server` 被中断。 | 现阶段真实边界已稳定前移到“本地 OpenAI server 根本未成功 bind/ready”，而不是单纯网络资源；但该日志仍未带出子进程 stderr/traceback，因此深一层启动异常尚未被当前工件捕获。 | `runtime startup failure (child traceback missing)` | Unknown | manual | Unknown |
 | 6 | `tests/lora/test_deepseekv2_tp.py` | Static：`DeepSeek-V2-Lite-Chat` + LoRA + TP2/TP4，命中 Ascend LoRA 适配高风险区；与 `case_lora_wrapper_selection_gap.md` 中的 packed/merged wrapper 选型问题同类。 | 真实根因不应先怀疑 upstream `set_lora()`，而应优先怀疑 Ascend 插件对 packed/merged LoRA wrapper 分流是否完整；这是典型插件适配边界问题。 | `vllm-ascend adaptation gap` | Yes | nightly / manual | Yes |
 | 7 | `tests/lora/test_qwen3moe_tp.py` | Static：`Qwen/Qwen3-30B-A3B` + LoRA + TP2/TP4，规模更大，仍落在 Ascend LoRA TP 适配边界。 | 与 DeepSeekV2 TP LoRA 同类：真正的高风险点是 Ascend 对 merged/packed/variable-slice LoRA wrapper 选择是否完整，而不是上游 LoRA API 本身。 | `vllm-ascend adaptation gap` | Yes (resource heavy) | nightly / manual | Yes |
 | 8 | `tests/model_executor/test_model_load_with_params.py` | Dynamic：补跑后已进入真实模型加载/预热流程；日志中先出现 `Cannot run aclop operators during NPU graph capture ... Fill ...`，随后框架打印 `Falling back to eager warmup after NPU graph capture failure.`，最终整条 pytest 被外层 `timeout` 截断。 | 目前可见的最深有效失败点不是下载，而是 Ascend 图捕获预热路径对 `Fill` 等 ACL op 不兼容；最终用例是否还能继续失败被外层超时遮蔽，但已足以说明该文件的 blocker 前移到 NPU graph warmup。 | `vllm-ascend compile/warmup fragility` + `timeout masking` | Unknown | nightly / manual | Yes |
@@ -91,8 +91,8 @@
 | 14 | `tests/compile/correctness_e2e/test_sequence_parallel.py` | Static：参数集中含 `RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8`，并直接做 `current_platform.get_device_capability() < (9, 0)`；而 Ascend `get_device_capability()` 返回 `None`，FP8 语义也不是按 CUDA `sm90` 能力线定义。 | 这是典型“把 CUDA capability / FP8 设备语义硬编码进测试”的情况。即便 tiny-random 非 FP8 子集可能有可迁移空间，整文件原样并不适合直接拿来作为 Ascend 全量验证。 | `upstream test hardcoded CUDA` + `runtime feature gap` | Partial (non-FP8 subset only) | reject / manual | Partially |
 | 15 | `tests/compile/test_startup.py` | Dynamic：测试甚至未进入文件主体；在 `tests/conftest.py -> vllm.entrypoints.openai.responses.protocol` 导入链中，Pydantic schema 生成长时间卡住并最终中断。 | 当前环境下的首个真实 blocker 是依赖/导入链兼容性问题，而不是 `test_startup.py` 自身的 Ascend 编译逻辑。这意味着本轮无法把责任归到 Ascend compile backend 本身。 | `dependency / environment compatibility` | Unknown | manual | No |
 | 16 | `tests/distributed/test_elastic_ep.py` | Static：4 卡、Ray、DeepSeek-V2-Lite-Chat、GSM8K 256 题、弹性扩缩容接口；`vllm-ascend` 代码树内确实已有 `elastic` / `eplb` / `dynamic_eplb` 实现。 | 这类测试不是“插件完全没实现”的场景；真实首个难点是多卡资源、模型资产、Ray 和长时评测链路。它更像重型系统验证，而不是适合快速 CI 的接口守卫。 | `environment/resource` + `test precondition` | Likely yes | manual / nightly | Not for observed blocker |
-| 17 | `tests/entrypoints/openai/test_realtime_validation.py` | Dynamic：补跑后模型权重已成功下载，server 启动进一步前移到 Ascend device init；随后因 `gpu_memory_utilization=0.9` 触发 `ValueError: Free memory on device (26.14/29.49 GiB)` / `(2.44/29.49 GiB)`，最终 `Server exited unexpectedly`。 | 根因已不是网络，而是 realtime server 在当前卡上做 engine 初始化时被 Ascend free-memory 守卫拦截；属于真实 NPU 资源容量问题。 | `environment/resource` | Maybe (with larger free memory / lower utilization) | manual / nightly | No |
-| 18 | `tests/models/multimodal/generation/test_voxtral_realtime.py` | Dynamic：补跑后虽然日志先提示 `Transformers does not recognize this architecture`，但 vLLM 已成功回退解析到 `Resolved architecture: VoxtralRealtimeGeneration`；真正失败点仍是启动期 `ValueError: Free memory on device (3.34/29.49 GiB)`。 | 根因不是网络，也不是架构名解析本身，而是 Voxtral realtime 在当前卡上被 Ascend device init 的 free-memory 校验拦下。 | `environment/resource` | Maybe (with larger free memory / lower utilization) | nightly / manual | No |
+| 17 | `tests/entrypoints/openai/test_realtime_validation.py` | Dynamic：在独占空闲 `2` 号卡上重跑后，已越过此前的低显存门槛并进入真实测试执行；当前首错变为 teardown 路径 `cleanup_dist_env_and_memory` 调用 `torch._C._host_emptyCache()`，触发 `AttributeError`。 | 根因不再是显存不足，而是清理阶段直接调用当前 torch 构建中不存在的 `_host_emptyCache`；属于运行时清理兼容性问题。 | `dependency / runtime compatibility` | Yes (after cleanup fix) | manual / nightly | No |
+| 18 | `tests/models/multimodal/generation/test_voxtral_realtime.py` | Dynamic：在独占空闲 `3` 号卡上重跑后，已越过此前的显存门槛并完成 engine 启动前半段；真实首错前移到模型构建阶段的 `NotImplementedError`：`AscendAttentionBackend` 尚不支持该 whisper block-pooling attention backend。 | 根因不再是显存不足，而是 Voxtral realtime 依赖的 whisper/attention backend 在 Ascend 上尚未实现；外层 `Engine core initialization failed` 只是包装层。 | `vllm-ascend feature gap` | No (current backend) | manual / nightly | Yes |
 | 19 | `tests/models/multimodal/pooling/test_colmodernvbert.py` | Dynamic：补跑后 4 个子用例均在 `ModelConfig` 创建期失败，关键报错为 `The checkpoint you are trying to load has model type 'modernvbert' but Transformers does not recognize this architecture.`；当前环境 `transformers==4.57.6`。 | 根因已不是网络，而是测试环境中的 `transformers` 版本/注册表无法识别 `modernvbert`，与 vLLM 文档已声明支持的 `ColModernVBERT` 资产形成依赖错位。 | `dependency / environment compatibility` | Yes (after dependency alignment) | nightly | No |
 | 20 | `tests/v1/kv_connector/extract_hidden_states_integration/test_extraction.py` | Dynamic：补跑后 engine 已启动，但测试在 connector / IPC 交互阶段长时间无结果，最终在 `zmq/backend/cython/_zmq.py:179` 触发 `KeyboardInterrupt`。 | 当前最深有效失败点是 hidden-state connector 集成链路挂起，而不是下载或 CUDA-only 限制；日志尚未给出更早异常，因此暂归为测试/运行时集成挂起。 | `runtime/test integration hang` | Unknown | nightly / manual | Unknown |
 
@@ -170,7 +170,20 @@
 - 失败点出现在 LoRA 权重扩展路径 `selected_loras = lora_b_weights[lora_indices_tensor].to(...)`；
 - 外层的 `Server exited unexpectedly` 只是包装层，真正根因是 Phi-4 多模态 LoRA profile/warmup 阶段触发大块显存申请失败。
 
-### 4.6 `tests/model_executor/test_model_load_with_params.py`
+### 4.6 `tests/entrypoints/openai/test_video.py`
+
+在独占空闲 `1` 号卡上再次单独重跑后已确认：
+
+- 日志中最早的具体失败不再是下载或外部视频 URL；
+- fixture 在轮询本地 `127.0.0.1:<port>/health` 时直接收到 `Connection refused`；
+- 随后 `_wait_for_server` 路径被 `KeyboardInterrupt` 打断。
+
+结论：
+
+- 该文件当前首个稳定可见 blocker 是“测试 server 根本没有成功监听端口”；
+- 但现有日志没有带出被拉起子进程的 stderr/traceback，因此还不能把责任继续下钻到更具体的 engine 内部异常。
+
+### 4.7 `tests/model_executor/test_model_load_with_params.py`
 
 补跑后已确认：
 
@@ -183,7 +196,7 @@
 - 该文件不能再归因为“模型未下载”；
 - 当前最深有效根因是 Ascend 图捕获预热链对 ACL op 的兼容性脆弱，后续还需要更长超时窗口或更小测试切片来继续下钻。
 
-### 4.7 `tests/models/multimodal/generation/test_whisper.py`
+### 4.8 `tests/models/multimodal/generation/test_whisper.py`
 
 补跑代表性单卡子集后，真实失败为：
 
@@ -195,7 +208,7 @@
 - 但最终进入 `VllmConfig` 校验的 `compilation_config` 组合不自洽；
 - 因此失败属于 Ascend 配置注入问题，而不是 Whisper 模型资产或 fork/spawn 运行方式本身。
 
-### 4.8 `tests/plugins_tests/test_io_processor_plugins.py`
+### 4.9 `tests/plugins_tests/test_io_processor_plugins.py`
 
 补跑后在线/离线 Prithvi 子用例共同暴露出更深 blocker：
 
@@ -206,7 +219,7 @@
 - 该文件首个失败点是 Terratorch 可选依赖缺失；
 - 因此它不是“外部 TIFF URL 不稳定”的网络类问题，而是测试环境缺少对应模型插件依赖。
 
-### 4.9 `tests/models/multimodal/pooling/test_colmodernvbert.py`
+### 4.10 `tests/models/multimodal/pooling/test_colmodernvbert.py`
 
 补跑后 4 个子用例一致失败：
 
@@ -217,7 +230,7 @@
 - 当前环境 `transformers==4.57.6`；
 - vLLM 代码树中已包含 `colmodernvbert` 相关配置与模型注册，因此当前更像运行环境依赖版本/注册表与测试资产定义之间的不匹配。
 
-### 4.10 `tests/v1/kv_connector/extract_hidden_states_integration/test_extraction.py`
+### 4.11 `tests/v1/kv_connector/extract_hidden_states_integration/test_extraction.py`
 
 补跑后可见：
 
@@ -230,33 +243,34 @@
 - 该文件当前最深有效失败点是集成链路挂起；
 - 已不能再归因于模型/tokenizer 下载前置条件。
 
-### 4.11 `tests/entrypoints/openai/test_realtime_validation.py`
+### 4.12 `tests/entrypoints/openai/test_realtime_validation.py`
 
-补跑后已确认：
+在独占空闲 `2` 号卡上单独重跑后已确认：
 
-- 模型权重下载能够完成；
-- 但 server 真正启动时在 Ascend worker device init 阶段被 free-memory 检查挡住；
-- 日志中可见 `ValueError: Free memory on device (26.14/29.49 GiB)`，另一子场景甚至只有 `(2.44/29.49 GiB)`。
-
-结论：
-
-- 该文件当前首个真实 blocker 已不是网络；
-- 它更接近“realtime server 在高默认显存利用率配置下无法在现有卡上冷启动”。
-
-### 4.12 `tests/models/multimodal/generation/test_voxtral_realtime.py`
-
-补跑后可见：
-
-- `Transformers does not recognize this architecture` 只是前置警告，vLLM 紧接着完成了 `Resolved architecture: VoxtralRealtimeGeneration`；
-- 真正阻断测试的是启动期 free-memory 校验：`ValueError: Free memory on device (3.34/29.49 GiB)`；
-- 外层随之报出 `Engine core initialization failed`。
+- 测试能够越过此前的 free-memory 守卫并进入真实执行；
+- 当前首个有效异常出现在 teardown 清理阶段；
+- `cleanup_dist_env_and_memory` 调用 `torch._C._host_emptyCache()`，但当前 torch 构建未提供该符号，触发 `AttributeError`。
 
 结论：
 
-- 该文件也不能再归因为网络问题；
-- 当前最深有效根因是 Ascend 资源门槛而非模型/架构识别失败。
+- 该文件当前首个真实 blocker 已不是网络，也不是显存不足；
+- 真实问题前移到分布式/显存清理兼容性路径。
 
-### 4.13 `tests/compile/correctness_e2e/test_sequence_parallel.py`
+### 4.13 `tests/models/multimodal/generation/test_voxtral_realtime.py`
+
+在独占空闲 `3` 号卡上单独重跑后可见：
+
+- `Transformers does not recognize this architecture` 只是前置警告，vLLM 随后完成了 `Resolved architecture: VoxtralRealtimeGeneration`；
+- 测试已越过此前的 free-memory 校验；
+- 真正首错前移到模型构建阶段：`NotImplementedError: <class 'vllm_ascend.attention.attention_v1.AscendAttentionBackend'> is not yet supported.`；
+- 外层随后报出 `RuntimeError: Engine core initialization failed`。
+
+结论：
+
+- 该文件也不能再归因为网络或显存问题；
+- 当前最深有效根因是 Ascend attention backend 功能缺口。
+
+### 4.14 `tests/compile/correctness_e2e/test_sequence_parallel.py`
 
 虽然本轮没有把整套多卡编译链跑穿，但源码已经给出真实根因边界：
 
