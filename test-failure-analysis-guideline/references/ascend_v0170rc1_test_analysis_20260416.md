@@ -1,6 +1,6 @@
 # vLLM v0.17.0rc1 上游用例在 Ascend NPU 上的批量分析
 
-更新时间：2026-04-16
+更新时间：2026-04-21
 
 ## 1. 分析范围
 
@@ -75,26 +75,26 @@
 
 | # | Test File | Evidence | Root Cause | Category | Should Ascend Pass | CI Verdict | Fixable in vllm-ascend |
 |---|---|---|---|---|---|---|---|
-| 1 | `tests/config/test_config_generation.py` | Dynamic：修正 `VLLM_PLUGINS=ascend` 后，已进入真实测试逻辑；随后阻塞在 `deepseek-ai/DeepSeek-V2-Lite` 配置拉取/SSL 下载阶段。 | 首个真实 blocker 不是 NPU 设备逻辑，而是远端模型配置下载前置条件；文件本身虽然用 `CUDA_VISIBLE_DEVICES` 命名测试，但在 Ascend 上并未暴露插件代码错误。 | `test precondition` | Yes | manual / nightly | No |
+| 1 | `tests/config/test_config_generation.py` | Dynamic：补跑后已越过模型配置下载，真实失败变为 `AssertionError: Configs with normal CUDA_VISIBLE_DEVICES and CUDA_VISIBLE_DEVICES="" should be equivalent`；差异集中在 `ascend_compilation_config.enable_npugraph_ex`。 | 根因不是网络，而是 Ascend 配置生成对“空字符串 `CUDA_VISIBLE_DEVICES`”路径与“未设置”路径给出了不同 `additional_config`，导致该 upstream 等价性断言失效。 | `vllm-ascend config divergence` | Yes (after config alignment) | nightly / targeted | Yes |
 | 2 | `tests/engine/test_arg_utils.py` | Dynamic：前 6 个子用例在 Ascend 下连续通过；未出现平台相关断言失败。后续中断来自外部 `KeyboardInterrupt` 噪声，而非测试断言。 | 该文件主体是参数解析/类型工具单测，没有 Ascend 特定分支；未发现 Ascend blocker。 | `compatible / no blocker` | Yes | presubmit | No |
-| 3 | `tests/entrypoints/openai/test_default_mm_loras.py` | Static：模块级 `snapshot_download("microsoft/Phi-4-multimodal-instruct")`；服务启动前必须先拿到多模态 base model 和 `speech-lora` 目录。 | 第一真实阻塞点是模型资产获取；完成资产准备后才会进入多模态 LoRA 路径。该路径在 Ascend 上属于高风险适配边界，但当前首个 blocker 仍是外部资源前置条件。 | `test precondition` | Yes (after assets) | nightly / manual | Not for observed blocker |
-| 4 | `tests/entrypoints/openai/test_return_tokens_as_ids.py` | Dynamic：纯单元子用例 `test_responses_api_logprobs_with_return_tokens_as_token_ids` 在 Ascend 下通过；在线子用例在 `card6` 上被 `Free memory on device (2.85/29.49 GiB)` 挡住，换到 `card0` 后又卡在模型/LoRA 资产下载的 `ssl.py`。 | 真实 blocker 是资源选择 + 远端资产下载，不是 `return_tokens_as_token_ids` 语义本身；核心 OpenAI response logprobs 逻辑对 Ascend 无阻塞。 | `environment/resource` + `test precondition` | Yes | unit: presubmit; online: nightly | No |
-| 5 | `tests/entrypoints/openai/test_video.py` | Static：依赖 `llava-hf/llava-onevision-qwen2-0.5b-ov-hf` 和 3 个外部视频 URL，还断言精确 token usage。 | 真正的首个边界是“远端模型 + 外部视频拉取 + 视频预处理”；这类用例在 Ascend 上不是先受平台算子限制，而是先受网络与外部资源稳定性限制。 | `test precondition` | Likely yes (after assets) | manual / nightly | No |
+| 3 | `tests/entrypoints/openai/test_default_mm_loras.py` | Dynamic：补跑后服务已进入 engine-core 初始化，首个有效失败为 LoRA 路径 OOM：`selected_loras = lora_b_weights[lora_indices_tensor].to(...)` 触发 `RuntimeError: NPU out of memory. Tried to allocate 20.00 GiB`。 | 根因已不是资产下载，而是 Phi-4 多模态 LoRA 启动/profile run 在当前 Ascend 显存预算下发生真实 NPU OOM；失败点位于 LoRA 扩展/索引张量搬运路径。 | `runtime memory pressure` + `vllm-ascend adaptation risk` | Maybe (after memory/shape tuning) | manual / nightly | Partially |
+| 4 | `tests/entrypoints/openai/test_return_tokens_as_ids.py` | Dynamic：纯单元子用例 `test_responses_api_logprobs_with_return_tokens_as_token_ids` 在 Ascend 下通过；在线 completion 子用例补跑后不再停在下载阶段，而是服务端 500，内核首错为 `RuntimeError: the first dimension of x, y, indices should be same`。 | 根因不是网络，而是在线推理路径中 prompt logprobs / LoRA logits 相关张量维度不一致，导致 Ascend 执行期崩溃并向 OpenAI server 冒泡为 `EngineDeadError`。 | `vllm-ascend runtime bug` | Unit yes; online no | unit: presubmit; online: manual / nightly | Yes |
+| 5 | `tests/entrypoints/openai/test_video.py` | Dynamic：补跑后不再首先暴露外部视频下载问题；当前可见首个失败是本地 server health-check 长时间无法就绪，最终在 `_wait_for_server` 中 `KeyboardInterrupt`。 | 现阶段真实边界已前移到“本地 OpenAI server 启动/ready 挂起”，而不是单纯网络资源；但日志未给出更早的 engine 内部异常，因此仍属未完全收敛的启动链问题。 | `runtime startup hang` | Unknown | manual | Unknown |
 | 6 | `tests/lora/test_deepseekv2_tp.py` | Static：`DeepSeek-V2-Lite-Chat` + LoRA + TP2/TP4，命中 Ascend LoRA 适配高风险区；与 `case_lora_wrapper_selection_gap.md` 中的 packed/merged wrapper 选型问题同类。 | 真实根因不应先怀疑 upstream `set_lora()`，而应优先怀疑 Ascend 插件对 packed/merged LoRA wrapper 分流是否完整；这是典型插件适配边界问题。 | `vllm-ascend adaptation gap` | Yes | nightly / manual | Yes |
 | 7 | `tests/lora/test_qwen3moe_tp.py` | Static：`Qwen/Qwen3-30B-A3B` + LoRA + TP2/TP4，规模更大，仍落在 Ascend LoRA TP 适配边界。 | 与 DeepSeekV2 TP LoRA 同类：真正的高风险点是 Ascend 对 merged/packed/variable-slice LoRA wrapper 选择是否完整，而不是上游 LoRA API 本身。 | `vllm-ascend adaptation gap` | Yes (resource heavy) | nightly / manual | Yes |
-| 8 | `tests/model_executor/test_model_load_with_params.py` | Static：3 个 embedding 模型，断言 encoder/pooler/tokenizer 参数加载；只对 ROCm 做了显式跳过，没有 CUDA 专属实现假设。 | 首个真实 blocker 是模型下载/缓存；测试语义本身是参数加载正确性，不依赖 CUDA-only kernel。 | `test precondition` | Yes | nightly | No |
+| 8 | `tests/model_executor/test_model_load_with_params.py` | Dynamic：补跑后已进入真实模型加载/预热流程；日志中先出现 `Cannot run aclop operators during NPU graph capture ... Fill ...`，随后框架打印 `Falling back to eager warmup after NPU graph capture failure.`，最终整条 pytest 被外层 `timeout` 截断。 | 目前可见的最深有效失败点不是下载，而是 Ascend 图捕获预热路径对 `Fill` 等 ACL op 不兼容；最终用例是否还能继续失败被外层超时遮蔽，但已足以说明该文件的 blocker 前移到 NPU graph warmup。 | `vllm-ascend compile/warmup fragility` + `timeout masking` | Unknown | nightly / manual | Yes |
 | 9 | `tests/models/language/generation/test_hybrid.py` | Static：覆盖大量 SSM/Hybrid 模型，还混入 `CudagraphDispatcher`、`FULL_CUDA_GRAPH_MODELS`、大规模模型矩阵。 | 该文件把“通用生成正确性”和“CUDA Graph 语义”混在同一文件里。对 Ascend 来说，基础 eager/普通生成子用例可能成立，但整文件不应按原样要求全部通过，尤其 `full_cuda_graph`/graph-dispatch 语义明显偏 CUDA。 | `upstream test hardcoded CUDA` + `runtime feature gap` | Partial | reject / manual | Partially |
-| 10 | `tests/models/multimodal/generation/test_whisper.py` | Static：含一个纯单元 `test_parse_language_detection_output`，其余用例依赖 `openai/whisper-large-v3-turbo`、HF 对比和 TP=2 分布式。文件已显式把 worker 多进程方式切到 `spawn`。 | 就代码结构看，首个 blocker 仍是模型资产与大模型运行成本，不是 Ascend 逻辑错误；文件已经主动规避了 fork 问题，说明作者也在绕开非功能性运行时风险。 | `test precondition` | Yes | nightly | No |
-| 11 | `tests/plugins_tests/test_io_processor_plugins.py` | Static：单元 `test_loading_missing_plugin` 很轻；核心在线/离线用例依赖 Prithvi 模型和外部 TIFF URL，并要求输出图像 hash 精确匹配。 | 第一真实边界是模型资产与外部 URL 可达性；不是 Ascend 平台逻辑先出错。 | `test precondition` | Yes (after assets) | manual / nightly | No |
+| 10 | `tests/models/multimodal/generation/test_whisper.py` | Dynamic：补跑代表性单卡子集后，失败不再停在模型下载，而是在 `VllmConfig` 校验期触发 `Assertion failed, When enabling VLLM_COMPILE aclgraph, please make sure compilation_config.mode == CompilationMode.VLLM_COMPILE and compilation_config.cudagraph_mode == CUDAGraphMode.VLLM_COMPILE`。 | 根因是 Ascend 侧启用了 ACL graph / compile 相关开关，但组装出的 `compilation_config` 与 `VLLM_COMPILE` 约束不一致，属于配置注入/编译模式联动错误。 | `vllm-ascend config bug` | No (current env) | nightly / manual | Yes |
+| 11 | `tests/plugins_tests/test_io_processor_plugins.py` | Dynamic：补跑后在线/离线 Prithvi 子用例都在模型架构检查阶段失败，错误为 `ModuleNotFoundError: No module named 'terratorch'`，并伴随 `Model architectures ['Terratorch'] failed to be inspected`。 | 根因不是网络或 TIFF URL，而是测试环境缺少 Prithvi/Terratorch 所需的可选依赖，导致模型注册/检查在启动前失败。 | `dependency / environment compatibility` | Yes (after deps) | manual / nightly | No |
 | 12 | `tests/v1/ec_connector/unit/test_ec_example_connector.py` | Dynamic：`23 passed, 1 skipped, 1 failed`；失败点为 `AttributeError: 'ECExampleConnector' object has no attribute 'has_caches'`；另有一个子用例被 `@pytest.mark.skipif(not torch.cuda.is_available())` 跳过。 | 真实根因是测试仍在调用已不存在/已重构的旧接口 `has_caches()`；不是 Ascend NPU 逻辑失败。文件里还混有显式 CUDA-only 子用例。 | `upstream test drift` + `upstream test hardcoded CUDA` | Yes (after test adaptation) | presubmit | No |
 | 13 | `tests/v1/streaming_input/test_scheduler_streaming.py` | Dynamic：首个失败为 `AssertionError: Encoder-decoder models are expected...`；追代码可见 `create_scheduler()` 里 `model_config` 是 `MagicMock()`，却没有显式设置 `is_encoder_decoder=False`，在新 Scheduler 逻辑中被当作 truthy。 | 根因不是 Ascend，也不是 scheduler 功能退化，而是测试桩没有随着 upstream `Scheduler` 新增的 `is_encoder_decoder` 语义一起更新。 | `upstream test drift` | Yes (after test adaptation) | presubmit | No |
 | 14 | `tests/compile/correctness_e2e/test_sequence_parallel.py` | Static：参数集中含 `RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8`，并直接做 `current_platform.get_device_capability() < (9, 0)`；而 Ascend `get_device_capability()` 返回 `None`，FP8 语义也不是按 CUDA `sm90` 能力线定义。 | 这是典型“把 CUDA capability / FP8 设备语义硬编码进测试”的情况。即便 tiny-random 非 FP8 子集可能有可迁移空间，整文件原样并不适合直接拿来作为 Ascend 全量验证。 | `upstream test hardcoded CUDA` + `runtime feature gap` | Partial (non-FP8 subset only) | reject / manual | Partially |
 | 15 | `tests/compile/test_startup.py` | Dynamic：测试甚至未进入文件主体；在 `tests/conftest.py -> vllm.entrypoints.openai.responses.protocol` 导入链中，Pydantic schema 生成长时间卡住并最终中断。 | 当前环境下的首个真实 blocker 是依赖/导入链兼容性问题，而不是 `test_startup.py` 自身的 Ascend 编译逻辑。这意味着本轮无法把责任归到 Ascend compile backend 本身。 | `dependency / environment compatibility` | Unknown | manual | No |
 | 16 | `tests/distributed/test_elastic_ep.py` | Static：4 卡、Ray、DeepSeek-V2-Lite-Chat、GSM8K 256 题、弹性扩缩容接口；`vllm-ascend` 代码树内确实已有 `elastic` / `eplb` / `dynamic_eplb` 实现。 | 这类测试不是“插件完全没实现”的场景；真实首个难点是多卡资源、模型资产、Ray 和长时评测链路。它更像重型系统验证，而不是适合快速 CI 的接口守卫。 | `environment/resource` + `test precondition` | Likely yes | manual / nightly | Not for observed blocker |
-| 17 | `tests/entrypoints/openai/test_realtime_validation.py` | Static：WebSocket realtime 音频流式验证，依赖 `mistralai/Voxtral-Mini-4B-Realtime-2602`；包含 warm-up、长超时和多阶段连接检查。 | 首个真实 blocker 仍是模型资产和服务启动成本；文件本身未写死 CUDA-only API，但运行成本和网络前置条件都很重。 | `test precondition` | Yes (after assets) | manual / nightly | No |
-| 18 | `tests/models/multimodal/generation/test_voxtral_realtime.py` | Static：直接用 `LLM` / `AsyncLLM` 跑 Voxtral realtime，依赖 Mistral tokenizer/HF 模型；无明显 CUDA-only 分支。 | 第一真实边界是模型和 tokenizer 资产准备；文件本身的核心语义是音频流处理和输出一致性，不是 CUDA-only backend 行为。 | `test precondition` | Yes | nightly / manual | No |
-| 19 | `tests/models/multimodal/pooling/test_colmodernvbert.py` | Static：`ModernVBERT/colmodernvbert-merged` pooling/token-embed/MaxSim 分数验证；无 CUDA 专属分支。 | 首个 blocker 是模型下载与多模态 pooling 模型启动成本；语义层面属于上游行为契约测试，理论上适合作为 Ascend 功能回归，但不适合无缓存 presubmit。 | `test precondition` | Yes | nightly | No |
-| 20 | `tests/v1/kv_connector/extract_hidden_states_integration/test_extraction.py` | Static：使用 `ExampleHiddenStatesConnector`、自注册可预测 dummy Llama 和 `TinyLlama` tokenizer；与 `kv_connector` 相关，而 `ascend_fix_to_test_mapping.md` 已证明一批 `kv_connector` 单测曾被 Ascend 平台修复解锁。 | 真实首个 blocker 是模型/tokenizer 资产；从代码语义看，这个测试更接近“上游接口契约 + connector 输出正确性”，不是 CUDA-only 行为。 | `test precondition` | Yes | nightly | No |
+| 17 | `tests/entrypoints/openai/test_realtime_validation.py` | Dynamic：补跑后模型权重已成功下载，server 启动进一步前移到 Ascend device init；随后因 `gpu_memory_utilization=0.9` 触发 `ValueError: Free memory on device (26.14/29.49 GiB)` / `(2.44/29.49 GiB)`，最终 `Server exited unexpectedly`。 | 根因已不是网络，而是 realtime server 在当前卡上做 engine 初始化时被 Ascend free-memory 守卫拦截；属于真实 NPU 资源容量问题。 | `environment/resource` | Maybe (with larger free memory / lower utilization) | manual / nightly | No |
+| 18 | `tests/models/multimodal/generation/test_voxtral_realtime.py` | Dynamic：补跑后虽然日志先提示 `Transformers does not recognize this architecture`，但 vLLM 已成功回退解析到 `Resolved architecture: VoxtralRealtimeGeneration`；真正失败点仍是启动期 `ValueError: Free memory on device (3.34/29.49 GiB)`。 | 根因不是网络，也不是架构名解析本身，而是 Voxtral realtime 在当前卡上被 Ascend device init 的 free-memory 校验拦下。 | `environment/resource` | Maybe (with larger free memory / lower utilization) | nightly / manual | No |
+| 19 | `tests/models/multimodal/pooling/test_colmodernvbert.py` | Dynamic：补跑后 4 个子用例均在 `ModelConfig` 创建期失败，关键报错为 `The checkpoint you are trying to load has model type 'modernvbert' but Transformers does not recognize this architecture.`；当前环境 `transformers==4.57.6`。 | 根因已不是网络，而是测试环境中的 `transformers` 版本/注册表无法识别 `modernvbert`，与 vLLM 文档已声明支持的 `ColModernVBERT` 资产形成依赖错位。 | `dependency / environment compatibility` | Yes (after dependency alignment) | nightly | No |
+| 20 | `tests/v1/kv_connector/extract_hidden_states_integration/test_extraction.py` | Dynamic：补跑后 engine 已启动，但测试在 connector / IPC 交互阶段长时间无结果，最终在 `zmq/backend/cython/_zmq.py:179` 触发 `KeyboardInterrupt`。 | 当前最深有效失败点是 hidden-state connector 集成链路挂起，而不是下载或 CUDA-only 限制；日志尚未给出更早异常，因此暂归为测试/运行时集成挂起。 | `runtime/test integration hang` | Unknown | nightly / manual | Unknown |
 
 ## 4. 已动态确认的关键根因
 
@@ -140,13 +140,123 @@
 在线子用例的真实 blocker：
 
 1. 在 `ASCEND_RT_VISIBLE_DEVICES=6` 上，`torch.npu.mem_get_info()` 只看到约 `2.85 GiB` 可用内存，服务启动被 Ascend worker 的 free-memory 检查拒绝；
-2. 换到 `ASCEND_RT_VISIBLE_DEVICES=0` 后，启动前移到远端模型/LoRA 资产下载阶段并卡在 `ssl.py`。
+2. 换到 `ASCEND_RT_VISIBLE_DEVICES=0` 并解决镜像下载后，服务端进一步前移到真实运行期错误：`RuntimeError: the first dimension of x, y, indices should be same`；
+3. 该异常随后被封装成 `EngineDeadError` / OpenAI `500 InternalServerError` 暴露给测试。
 
 结论：
 
-- 当前观察到的 blocker 是资源和网络前置条件，不是该特性与 Ascend 不兼容。
+- 该文件不能再简单归因为资源或网络；在线子集已经暴露出真实 Ascend 运行期维度错误，而纯单元子集仍是可通过的。
 
-### 4.4 `tests/compile/correctness_e2e/test_sequence_parallel.py`
+### 4.4 `tests/config/test_config_generation.py`
+
+补跑后已越过模型配置下载，真实失败为：
+
+- `AssertionError: Configs with normal CUDA_VISIBLE_DEVICES and CUDA_VISIBLE_DEVICES="" should be equivalent`
+
+根因：
+
+- 该测试用同一组 `EngineArgs` 分别在“正常 `CUDA_VISIBLE_DEVICES`”与“空字符串 `CUDA_VISIBLE_DEVICES`”下生成配置；
+- Ascend 路径下两次生成出的 `additional_config.ascend_compilation_config.enable_npugraph_ex` 不一致；
+- 因此失败所有权落在 Ascend 配置生成逻辑，而不是网络、模型下载或通用设备选择逻辑。
+
+### 4.5 `tests/entrypoints/openai/test_default_mm_loras.py`
+
+补跑后首个有效失败已前移到 engine core：
+
+- `RuntimeError: NPU out of memory. Tried to allocate 20.00 GiB`
+
+关键栈信息：
+
+- 失败点出现在 LoRA 权重扩展路径 `selected_loras = lora_b_weights[lora_indices_tensor].to(...)`；
+- 外层的 `Server exited unexpectedly` 只是包装层，真正根因是 Phi-4 多模态 LoRA profile/warmup 阶段触发大块显存申请失败。
+
+### 4.6 `tests/model_executor/test_model_load_with_params.py`
+
+补跑后已确认：
+
+- 日志先出现 `Cannot run aclop operators during NPU graph capture ... Fill ...`；
+- 随后框架打印 `Falling back to eager warmup after NPU graph capture failure.`；
+- 但整个 pytest 进程在更晚阶段被外层 `timeout` 截断，因此最终失败点仍有一层超时遮蔽。
+
+结论：
+
+- 该文件不能再归因为“模型未下载”；
+- 当前最深有效根因是 Ascend 图捕获预热链对 ACL op 的兼容性脆弱，后续还需要更长超时窗口或更小测试切片来继续下钻。
+
+### 4.7 `tests/models/multimodal/generation/test_whisper.py`
+
+补跑代表性单卡子集后，真实失败为：
+
+- `Assertion failed, When enabling VLLM_COMPILE aclgraph, please make sure compilation_config.mode == CompilationMode.VLLM_COMPILE and compilation_config.cudagraph_mode == CUDAGraphMode.VLLM_COMPILE`
+
+根因：
+
+- Ascend 侧 ACL graph / compile 相关配置被启用；
+- 但最终进入 `VllmConfig` 校验的 `compilation_config` 组合不自洽；
+- 因此失败属于 Ascend 配置注入问题，而不是 Whisper 模型资产或 fork/spawn 运行方式本身。
+
+### 4.8 `tests/plugins_tests/test_io_processor_plugins.py`
+
+补跑后在线/离线 Prithvi 子用例共同暴露出更深 blocker：
+
+- `ModuleNotFoundError: No module named 'terratorch'`
+
+结论：
+
+- 该文件首个失败点是 Terratorch 可选依赖缺失；
+- 因此它不是“外部 TIFF URL 不稳定”的网络类问题，而是测试环境缺少对应模型插件依赖。
+
+### 4.9 `tests/models/multimodal/pooling/test_colmodernvbert.py`
+
+补跑后 4 个子用例一致失败：
+
+- `The checkpoint you are trying to load has model type 'modernvbert' but Transformers does not recognize this architecture.`
+
+补充环境信息：
+
+- 当前环境 `transformers==4.57.6`；
+- vLLM 代码树中已包含 `colmodernvbert` 相关配置与模型注册，因此当前更像运行环境依赖版本/注册表与测试资产定义之间的不匹配。
+
+### 4.10 `tests/v1/kv_connector/extract_hidden_states_integration/test_extraction.py`
+
+补跑后可见：
+
+- engine 已成功启动；
+- 但测试随后长时间停在 connector / IPC 交互阶段；
+- 最终在 `zmq/backend/cython/_zmq.py:179` 被 `KeyboardInterrupt` 打断。
+
+结论：
+
+- 该文件当前最深有效失败点是集成链路挂起；
+- 已不能再归因于模型/tokenizer 下载前置条件。
+
+### 4.11 `tests/entrypoints/openai/test_realtime_validation.py`
+
+补跑后已确认：
+
+- 模型权重下载能够完成；
+- 但 server 真正启动时在 Ascend worker device init 阶段被 free-memory 检查挡住；
+- 日志中可见 `ValueError: Free memory on device (26.14/29.49 GiB)`，另一子场景甚至只有 `(2.44/29.49 GiB)`。
+
+结论：
+
+- 该文件当前首个真实 blocker 已不是网络；
+- 它更接近“realtime server 在高默认显存利用率配置下无法在现有卡上冷启动”。
+
+### 4.12 `tests/models/multimodal/generation/test_voxtral_realtime.py`
+
+补跑后可见：
+
+- `Transformers does not recognize this architecture` 只是前置警告，vLLM 紧接着完成了 `Resolved architecture: VoxtralRealtimeGeneration`；
+- 真正阻断测试的是启动期 free-memory 校验：`ValueError: Free memory on device (3.34/29.49 GiB)`；
+- 外层随之报出 `Engine core initialization failed`。
+
+结论：
+
+- 该文件也不能再归因为网络问题；
+- 当前最深有效根因是 Ascend 资源门槛而非模型/架构识别失败。
+
+### 4.13 `tests/compile/correctness_e2e/test_sequence_parallel.py`
 
 虽然本轮没有把整套多卡编译链跑穿，但源码已经给出真实根因边界：
 
@@ -170,11 +280,11 @@
 
 ### 5.2 推荐放入 nightly 的用例
 
+- `tests/config/test_config_generation.py`（修复 Ascend 配置分歧后）
 - `tests/model_executor/test_model_load_with_params.py`
 - `tests/models/multimodal/generation/test_whisper.py`
-- `tests/models/multimodal/pooling/test_colmodernvbert.py`
+- `tests/models/multimodal/pooling/test_colmodernvbert.py`（补齐依赖版本后）
 - `tests/v1/kv_connector/extract_hidden_states_integration/test_extraction.py`
-- `tests/entrypoints/openai/test_return_tokens_as_ids.py`（在线服务子集）
 
 ### 5.3 建议保留为 manual / reject 的用例
 
@@ -183,6 +293,7 @@
 - `tests/compile/correctness_e2e/test_sequence_parallel.py`
 - `tests/distributed/test_elastic_ep.py`
 - `tests/entrypoints/openai/test_default_mm_loras.py`
+- `tests/entrypoints/openai/test_return_tokens_as_ids.py`（在线服务子集）
 - `tests/entrypoints/openai/test_realtime_validation.py`
 - `tests/models/multimodal/generation/test_voxtral_realtime.py`
 - `tests/lora/test_deepseekv2_tp.py`
@@ -192,6 +303,8 @@
 
 1. **测试适配优先**：先修复 `test_scheduler_streaming.py` 与 `test_ec_example_connector.py` 这两个明确的 upstream 测试漂移问题；
 2. **统一资源筛卡策略**：后续所有单卡 Ascend 动态分析都应先用 `torch.npu.mem_get_info()` 做二次筛卡，而不是只看 `npu-smi` 的“无进程”；
-3. **LoRA TP 路径重点关注插件适配**：`test_deepseekv2_tp.py` 与 `test_qwen3moe_tp.py` 优先沿 `case_lora_wrapper_selection_gap.md` 的 wrapper 分流逻辑排查；
-4. **不要把 CUDA-only 编译/FP8 语义直接平移到 Ascend**：`test_sequence_parallel.py` 必须裁切，不能整文件生搬到 Ascend CI；
-5. **重型多模态 / realtime / elastic 用例先做资产缓存和 nightly 化**：否则分析与 CI 都会被网络和模型下载噪声淹没。
+3. **优先修复 Ascend 配置分歧**：`test_config_generation.py` 与 `test_whisper.py` 已表明 `ascend_compilation_config` / `VLLM_COMPILE` 相关配置联动存在真实问题；
+4. **LoRA 与在线服务路径继续重点关注插件适配**：`test_default_mm_loras.py` 和在线 `test_return_tokens_as_ids.py` 都已暴露到真实运行期问题；`test_deepseekv2_tp.py`、`test_qwen3moe_tp.py` 仍应沿 `case_lora_wrapper_selection_gap.md` 的 wrapper 分流逻辑排查；
+5. **不要把 CUDA-only 编译/FP8 语义直接平移到 Ascend**：`test_sequence_parallel.py` 必须裁切，不能整文件生搬到 Ascend CI；
+6. **补齐模型可选依赖与版本矩阵**：`test_io_processor_plugins.py` 需要 `terratorch`，`test_colmodernvbert.py` 需要与 `modernvbert` 对齐的 `transformers`/注册表版本；
+7. **重型 multimodal / realtime / elastic 用例继续 nightly 化**：它们现在虽然不全是“网络问题”，但仍带有 server startup、IPC 挂起、长时资源占用等系统级噪声。
